@@ -127,12 +127,12 @@ problem = GFOProblem(
 rng = jax.random.PRNGKey(1)
 
 optimizer = IPOP_CMA_ES(
-    popsize=4 + int(3 * np.log(bD)), num_dims=bD, sigma_init=0.5
+    popsize=4 + int(3 * np.log(bD)), num_dims=bD, sigma_init=1.0
 )  # , bounds=np.array([[-1, 1]]*bD))
 NP = optimizer.strategy.popsize
 es_params = optimizer.default_params.replace(
     strategy_params=optimizer.default_params.strategy_params.replace(
-        clip_min=-0.5, clip_max=0.5
+        clip_min=-5, clip_max=5
     ),
     restart_params=optimizer.default_params.restart_params.replace(
         min_fitness_spread=1, min_num_gens=500
