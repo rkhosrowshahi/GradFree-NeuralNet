@@ -21,6 +21,7 @@ from pymoo.core.problem import Problem
 from pymoo.core.callback import Callback
 
 import multiprocessing as mp
+from concurrent.futures import ThreadPoolExecutor
 
 
 class GFOProblem(Problem):
@@ -30,6 +31,7 @@ class GFOProblem(Problem):
         model=None,
         dataset=None,
         batch_size=1024,
+        num_classes=10,
         block=False,
         codebook=None,
         orig_dims=None,
@@ -51,6 +53,7 @@ class GFOProblem(Problem):
         self.batch_size = batch_size
         self.block = block  # Enable / disable block
         self.dataset = dataset
+        self.num_classes = num_classes
         self.test_loader = test_loader
         self.set_model_state = set_model_state
         self.device = device
@@ -71,76 +74,80 @@ class GFOProblem(Problem):
         else:
             self.data_loader = train_loader
 
+        self.fitness = None
+
     def data_sampler(self):
-        return DataLoader(self.dataset, batch_size=self.batch_size, shuffle=True)
-
-    def unblocker(self, blocked_params):
-
-        unblocked_params = np.ones(self.orig_dims)
-        # start_time = time.time()
-        for block_idx, indices in self.codebook.items():
-            unblocked_params[indices] *= blocked_params[block_idx]
-
-        # end_time = time.time() - start_time
-
-        # print(end_time)
-        return unblocked_params
-
-    def assign_values(self, args):
-        b = np.zeros(self.orig_dims)
-        a, indices = args[0], args[1]
-
-        b[indices] = a
-        # b[0] = indices[0]
-        return b
-
-    def unblocker_multiprocess(self, blocked_params):
-        flattened_indices = []
-        for i, indices in self.codebook.items():
-            flattened_indices.extend(indices)
-
-        unblocked_params = np.zeros(self.orig_dims)
-        pool = mp.Pool(processes=mp.cpu_count() // 2)
-        result = pool.map(
-            self.assign_values,
-            zip(blocked_params, self.codebook.values()),
+        return DataLoader(
+            self.dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            # num_workers=2,
+            pin_memory=True,
         )
 
-        unblocked_params = np.sum(result, 0)
+    # def unblocker(self, blocked_params):
 
-        return unblocked_params
+    #     unblocked_params = np.zeros(self.orig_dims)
+    #     # start_time = time.time()
+    #     for block_idx, indices in self.codebook.items():
+    #         # st_in = time.time()
+    #         unblocked_params[indices] = np.full(len(indices), blocked_params[block_idx])
+    #         # tot_in = time.time() - st_in
+    #         # print(tot_in)
 
-    # def update_B(self, indices, value):
-    #     B = jnp.zeros(self.orig_dims)
-    #     B = B.at[indices].set(value)
-    #     return B
+    #     # end_time = time.time() - start_time
 
-    # def unblocker_jax_failed(self, A):
-    #     # Flatten the codebook to a list of indices and corresponding values
+    #     # print(end_time)
+    #     return unblocked_params
+
+    def update_unblocked_params(self, block_idx, indices, blocked_params):
+        self.unblocked_params[indices] = np.full(
+            len(indices), blocked_params[block_idx]
+        )
+
+    def unblocker(self, blocked_params):
+        self.unblocked_params = np.zeros(self.orig_dims)
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for block_idx, indices in self.codebook.items():
+                futures.append(
+                    executor.submit(
+                        self.update_unblocked_params, block_idx, indices, blocked_params
+                    )
+                )
+
+            for future in futures:
+                future.result()  # Wait for all futures to complete
+
+        return self.unblocked_params
+
+    # def assign_values(self, args):
+    #     b = np.zeros(self.orig_dims)
+    #     a, indices = args[0], args[1]
+
+    #     b[indices] = a
+    #     # b[0] = indices[0]
+    #     return b
+
+    # def unblocker2(self, blocked_params):
     #     flattened_indices = []
-    #     flattened_values = []
-
     #     for i, indices in self.codebook.items():
     #         flattened_indices.extend(indices)
-    #         flattened_values.extend([A[i]] * len(indices))
 
-    #     flattened_indices = jnp.array(flattened_indices)
-    #     flattened_values = jnp.array(flattened_values)
-    #     # Use vmap to efficiently apply the function across multiple copies of A
-    #     # Use vmap to vectorize the process of updating B
-    #     updated_Bs = jax.vmap(self.update_B, in_axes=(0, 0))(
-    #         flattened_indices[:, None], flattened_values[:, None]
-    #     )
+    #     unblocked_params = np.zeros(self.orig_dims)
 
-    #     print(updated_Bs)
+    #     st_in = time.time()
+    #     with mp.Pool(processes=4) as pool:
+    #         result = pool.imap(
+    #             self.assign_values,
+    #             zip(blocked_params, self.codebook.values()),
+    #         )
+    #     tot_in = time.time() - st_in
+    #     print(tot_in)
 
-    #     # Sum the results to get the final B vector
-    #     final_B = jnp.sum(updated_Bs, axis=0)
+    #     unblocked_params = np.sum(result, 0)
 
-    #     # Convert the final B to a numpy array
-    #     final_B_np = np.array(final_B)
-
-    #     return final_B_np
+    #     return unblocked_params
 
     def crossentropy_func(self, model, data_loader, device):
         model.eval()
@@ -166,7 +173,7 @@ class GFOProblem(Problem):
         #     y_true=target.cpu().numpy(), y_pred=pred.cpu().numpy(), average="macro"
         # )
         fitness += multiclass_f1_score(
-            output, target, average="macro", num_classes=10
+            output, target, average="weighted", num_classes=self.num_classes
         ).item()
 
         return 1 - fitness
@@ -183,7 +190,7 @@ class GFOProblem(Problem):
             y_true=target.cpu().numpy(),
             y_score=output.cpu().detach().numpy(),
             k=1,
-            labels=np.arange(10),
+            labels=np.arange(self.num_classes),
         )
         # fitness += topk_multilabel_accuracy(output, target, k=5).item()
 
@@ -205,7 +212,7 @@ class GFOProblem(Problem):
                 pred = output.argmax(dim=1)
 
                 fitness += multiclass_f1_score(
-                    pred, target, average="macro", num_classes=10
+                    pred, target, average="macro", num_classes=self.num_classes
                 ).item()
 
         return fitness / len(self.test_loader)
@@ -217,13 +224,12 @@ class GFOProblem(Problem):
         return np.full(self.n_var, 0)
 
     def _evaluate(self, X, out, *args, **kwargs):
-        NP = X.shape[0]
+        NP = len(X)
         fout = np.zeros(NP)
 
         for i in range(NP):
-            xi = X[i]
-            uxi = xi.copy()
-            if self.block:
+            uxi = X[i]
+            if self.block and len(uxi) != self.orig_dims:
                 uxi = self.unblocker(uxi)
 
             self.set_model_state(model=self.model, parameters=uxi)
@@ -237,8 +243,8 @@ class GFOProblem(Problem):
 
     def scipy_fitness_func(self, X):
 
-        uxi = X.copy()
-        if self.block:
+        uxi = X
+        if self.block and len(uxi) != self.orig_dims:
             uxi = self.unblocker(uxi)
 
         self.set_model_state(model=self.model, parameters=uxi)
@@ -249,10 +255,32 @@ class GFOProblem(Problem):
 
         return fitness
 
+    def multithread_fitness_func(self, X, idx):
+
+        uxi = X
+        if self.block and len(uxi) != self.orig_dims:
+            uxi = self.unblocker(uxi)
+
+        self.set_model_state(model=self.model, parameters=uxi)
+
+        self.fitness[idx] = self.fitness_func(
+            model=self.model, data_loader=self.data_loader, device=self.device
+        )
+
+        # return fitness
+
 
 class SOCallback(Callback):
 
-    def __init__(self, k_steps=10, problem=None, csv_path=None, plt_path=None) -> None:
+    def __init__(
+        self,
+        k_steps=10,
+        problem=None,
+        csv_path=None,
+        plt_path=None,
+        start_eval=1,
+        start_iter=0,
+    ) -> None:
         super().__init__()
         self.k_steps = k_steps
         self.csv_path = csv_path
@@ -262,8 +290,8 @@ class SOCallback(Callback):
         self.data["opt_F"] = []
         self.data["pop_F"] = []
         self.data["n_evals"] = []
-        self.start_iter = None
-        self.start_eval = None
+        self.start_iter = start_iter
+        self.start_eval = start_eval
 
     def notify(self, algorithm):
         self.data["opt_F"].append(algorithm.opt.get("F")[0][0])
@@ -272,15 +300,6 @@ class SOCallback(Callback):
 
         df = pd.read_csv(self.csv_path)
         # if len(df) >= 2:
-        curr_neval = df["n_eval"].to_numpy()[-1]
-        curr_niter = df["n_step"].to_numpy()[-1]
-        if self.start_iter is None:
-            self.start_iter = curr_niter
-            self.start_eval = curr_neval
-
-        # else:
-        # curr_neval = df["n_eval"].to_numpy()
-        # curr_niter = df["n_step"].to_numpy()
 
         if (self.start_iter + algorithm.n_iter) % self.k_steps == 0:
             best_X = algorithm.opt.get("X")[0]
@@ -310,6 +329,7 @@ class SOCallback(Callback):
             plt.ylabel("Error")
             plt.title(f"{algorithm.__class__.__name__}, {algorithm.problem.criterion}")
             plt.legend()
+            plt.grid()
             plt.savefig(self.plt_path)
             plt.close()
 
@@ -340,5 +360,43 @@ class SOCallback(Callback):
             plt.ylabel("Error")
             plt.title(f"DE, {self.problem.criterion}")
             plt.legend()
+            plt.grid()
+            plt.savefig(self.plt_path)
+            plt.close()
+
+    def general_caller(
+        self,
+        niter,
+        neval,
+        opt_X,
+        opt_F,
+        pop_F,
+    ):
+        if niter % self.k_steps == 0:
+            best_X, best_F = opt_X, opt_F
+            df = pd.read_csv(self.csv_path)
+            # Define the new row as a dictionary
+            new_row = {
+                "n_step": self.start_iter + niter,
+                "n_eval": self.start_eval + neval,
+                "f_best": best_F,
+                "f_avg": pop_F.mean(),
+                "f_std": pop_F.std(),
+                "test_f1_best": self.problem.test_func(best_X),
+            }
+            # Append the new row to the DataFrame
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            # Save the DataFrame back to the CSV file
+            df.to_csv(self.csv_path, index=False)
+
+            plt.plot(df["n_step"], df["f_best"], label="train")
+            if self.problem.criterion != "crossentropy":
+                plt.plot(df["n_step"], 1 - df["test_f1_best"], label="test")
+            plt.xlabel("Steps")
+            # if self.criterion != "crossentropy":
+            plt.ylabel("Error")
+            plt.title(f"DE, {self.problem.criterion}")
+            plt.legend()
+            plt.grid()
             plt.savefig(self.plt_path)
             plt.close()
