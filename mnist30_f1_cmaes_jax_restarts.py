@@ -20,7 +20,7 @@ import os
 import pickle
 from evosax import CMA_ES, IPOP_CMA_ES
 
-if __name__ == "main":
+if __name__ == "__main__":
     os.makedirs("./out", exist_ok=True)
 
     # Load MNIST
