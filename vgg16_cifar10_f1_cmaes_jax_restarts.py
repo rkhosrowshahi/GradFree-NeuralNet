@@ -18,7 +18,7 @@ import pandas as pd
 import jax
 import os
 import pickle
-from evosax import CMA_ES
+from evosax import CMA_ES, IPOP_CMA_ES
 
 if __name__ == "main":
     os.makedirs("./out", exist_ok=True)
@@ -133,15 +133,6 @@ problem = GFOProblem(
     orig_dims=D,
 )
 
-callback = SOCallback(
-    k_steps=100,
-    csv_path=csv_path,
-    plt_path=plt_path,
-    start_eval=FE,
-    start_iter=curr_iter,
-    problem=problem,
-)
-
 rng = jax.random.PRNGKey(1)
 
 optimizer = IPOP_CMA_ES(
@@ -165,6 +156,14 @@ else:
 FE = 0
 iters = 0
 res_counter = 0
+callback = SOCallback(
+    k_steps=100,
+    csv_path=csv_path,
+    plt_path=plt_path,
+    start_eval=FE,
+    start_iter=curr_iter,
+    problem=problem,
+)
 print(
     f"n_steps \t| n_evals \t| best F \t| pop F_min \t| pop F_mean \t| pop F_std \t| sigma"
 )
