@@ -39,7 +39,7 @@ if __name__ == "__main__":
     train_loader = DataLoader(trainset, batch_size=128, shuffle=True)
     test_loader = DataLoader(testset, batch_size=10000, shuffle=False)
 
-    block_size = 100
+    block_size = 10000
 
     model = MNIST3M()
     problem_name = "MNIST3M"
