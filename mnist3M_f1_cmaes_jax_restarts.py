@@ -39,7 +39,7 @@ if __name__ == "__main__":
     train_loader = DataLoader(trainset, batch_size=128, shuffle=True)
     test_loader = DataLoader(testset, batch_size=10000, shuffle=False)
 
-    block_size = 1000
+    block_size = 10000
 
     model = MNIST3M()
     # model = vgg16()
@@ -232,7 +232,16 @@ if __name__ == "__main__":
             niter=iters, neval=FE, opt_X=best_x0, opt_F=best_F, pop_F=pop_F
         )
         print(
-            f"{iters}\t|{FE}\t|{best_F:.6f}\t|{pop_F.min():.6f}\t|{pop_F.mean():.6f}\t|{pop_F.std():.6f}\t|{state.strategy_state.sigma:.6f}\t|{(opt_t2-opt_t1) + opt_t4-opt_t3}\t|{eval_t2-eval_t1}"
+            f"{iters}\t|{FE}\t|{best_F:.6f}\t|{pop_F.min():.6f}\t|{pop_F.mean():.6f}\t|{pop_F.std():.6f}\t|{state.strategy_state.sigma:.6f}\t|{((opt_t2-opt_t1) + (opt_t4-opt_t3)):.6f}\t|{(eval_t2-eval_t1):.6f}"
         )
 
     print("Best solution found: \nX = %s\nF = %s" % (best_x0, best_F))
+    # Save the best solution model parameters state
+    best_X = best_x0.copy()
+    if len(best_X) != D:
+        best_X = problem.unblocker(best_X)
+    set_model_state(model, best_X)
+    torch.save(
+        model.state_dict(),
+        f"out/VGG16_CIFAR10_block_bs{block_size}_gfo_1000Kfe_f1_cmaes_jax_restart5_model_{res_counter}.pth",
+    )

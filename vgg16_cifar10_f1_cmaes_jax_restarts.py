@@ -238,7 +238,7 @@ if __name__ == "__main__":
             niter=iters, neval=FE, opt_X=best_x0, opt_F=best_F, pop_F=pop_F
         )
         print(
-            f"{iters}\t|{FE}\t|{best_F:.6f}\t|{pop_F.min():.6f}\t|{pop_F.mean():.6f}\t|{pop_F.std():.6f}\t|{state.strategy_state.sigma:.6f}\t|{(opt_t2-opt_t1) + opt_t4-opt_t3}\t|{eval_t2-eval_t1}"
+            f"{iters}\t|{FE}\t|{best_F:.6f}\t|{pop_F.min():.6f}\t|{pop_F.mean():.6f}\t|{pop_F.std():.6f}\t|{state.strategy_state.sigma:.6f}\t|{((opt_t2-opt_t1) + (opt_t4-opt_t3)):.6f}\t|{(eval_t2-eval_t1):.6f}"
         )
 
     print("Best solution found: \nX = %s\nF = %s" % (best_x0, best_F))
