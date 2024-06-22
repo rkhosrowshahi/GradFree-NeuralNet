@@ -14,7 +14,7 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 
-from src.models import MNIST500k
+from src.models import MNIST500K
 
 import numpy as np
 import pandas as pd
@@ -41,8 +41,8 @@ if __name__ == "__main__":
 
     block_size = 1000
 
-    model = MNIST500k()
-    problem_name = "MNIST500k"
+    model = MNIST500K()
+    problem_name = "MNIST500K"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
