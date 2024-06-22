@@ -1,4 +1,5 @@
 import os
+from time import time
 from src.gfo import (
     GFOProblem,
     SOCallback,
@@ -12,6 +13,8 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
+
+from src.models import MNIST3M
 
 import numpy as np
 import pandas as pd
@@ -36,11 +39,9 @@ if __name__ == "__main__":
     train_loader = DataLoader(trainset, batch_size=128, shuffle=True)
     test_loader = DataLoader(testset, batch_size=10000, shuffle=False)
 
-    block_size = 100
-    # Define model
-    from src.models import MNIST30K
+    block_size = 1000
 
-    model = MNIST30K()
+    model = MNIST3M()
     # model = vgg16()
     # model.classifier = nn.Sequential(*model.classifier, nn.Linear(1000, 10))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -86,10 +87,10 @@ if __name__ == "__main__":
     problem._evaluate([x0, init_params, init_params_blocked], out=out)
     print(out)
     csv_path = (
-        f"out/MNIST30K_block_bs{block_size}_gfo_100Kfe_f1_cmaes_jax_restart5_hist.csv"
+        f"out/MNIST500K_block_bs{block_size}_gfo_100Kfe_f1_cmaes_jax_restart5_hist.csv"
     )
     plt_path = (
-        f"out/MNIST30K_block_bs{block_size}_gfo_100Kfe_f1_cmaes_jax_restart5_plt.pdf"
+        f"out/MNIST500K_block_bs{block_size}_gfo_100Kfe_f1_cmaes_jax_restart5_plt.pdf"
     )
     df = pd.DataFrame(
         {
@@ -131,17 +132,22 @@ if __name__ == "__main__":
     optimizer = IPOP_CMA_ES(
         popsize=4 + int(3 * np.log(bD)), num_dims=bD, sigma_init=1.0
     )  # , bounds=np.array([[-1, 1]]*bD))
+    # optimizer = IPOP_CMA_ES(popsize=100, num_dims=bD, sigma_init=1.0)#, bounds=np.array([[-1, 1]]*bD))
     NP = optimizer.strategy.popsize
     es_params = optimizer.default_params.replace(
         strategy_params=optimizer.default_params.strategy_params.replace(
             clip_min=-5, clip_max=5
         ),
         restart_params=optimizer.default_params.restart_params.replace(
-            min_fitness_spread=1, min_num_gens=500
+            min_fitness_spread=0.01,
+            min_num_gens=10000,
+            copy_mean=True,
+            popsize_multiplier=1,
         ),
     )
     if best_state is None:
         state = optimizer.initialize(rng, es_params)
+        state.strategy_state.replace(mean=best_x0)
     else:
         state = best_state
 
@@ -155,9 +161,6 @@ if __name__ == "__main__":
         start_eval=FE,
         start_iter=curr_iter,
         problem=problem,
-    )
-    print(
-        f"n_steps \t| n_evals \t| best F \t| pop F_min \t| pop F_mean \t| pop F_std \t| sigma"
     )
     while FE < maxFE:
         rng, rng_gen, rng_eval = jax.random.split(rng, 3)
@@ -202,16 +205,20 @@ if __name__ == "__main__":
                 problem=problem,
             )
 
-            NP *= 2
-
         pop_F = np.zeros(NP)
         pop_X = np.zeros((NP, bD))
+        opt_t1 = time()
         pop_X, state = optimizer.ask(rng_gen, state, es_params)
+        opt_t2 = time()
+        eval_t1 = time()
         for ip in range(NP):
             f = problem.scipy_fitness_func(pop_X[ip])
             pop_F[ip] = f
+        eval_t2 = time()
 
+        opt_t3 = time()
         state = optimizer.tell(pop_X, pop_F, state, es_params)
+        opt_t4 = time()
 
         argmin = pop_F.argmin()
         min_F = pop_F[argmin]
@@ -225,7 +232,7 @@ if __name__ == "__main__":
             niter=iters, neval=FE, opt_X=best_x0, opt_F=best_F, pop_F=pop_F
         )
         print(
-            f"{iters} \t| {FE} \t| {best_F:.6f} \t| {pop_F.min():.6f} \t| {pop_F.mean():.6f} \t| {pop_F.std():.6f} \t| {state.strategy_state.sigma:.6f}"
+            f"{iters}\t|{FE}\t|{best_F:.6f}\t|{pop_F.min():.6f}\t|{pop_F.mean():.6f}\t|{pop_F.std():.6f}\t|{state.strategy_state.sigma:.6f}\t|{(opt_t2-opt_t1) + opt_t4-opt_t3}\t|{eval_t2-eval_t1}"
         )
 
     print("Best solution found: \nX = %s\nF = %s" % (best_x0, best_F))
