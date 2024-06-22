@@ -19,6 +19,7 @@ import jax
 import os
 import pickle
 from evosax import CMA_ES, IPOP_CMA_ES
+from time import time
 
 if __name__ == "__main__":
 
@@ -93,8 +94,8 @@ if __name__ == "__main__":
     out = {"F": []}
     problem._evaluate([x0, init_params, init_params_blocked], out=out)
     print(out)
-    csv_path = f"out/VGG16_CIFAR10_block_bs{block_size}_gfo_100Kfe_f1_cmaes_jax_restart5_hist.csv"
-    plt_path = f"out/VGG16_CIFAR10_block_bs{block_size}_gfo_100Kfe_f1_cmaes_jax_restart5_plt.pdf"
+    csv_path = f"out/VGG16_CIFAR10_block_bs{block_size}_gfo_1000Kfe_f1_cmaes_jax_restart5_hist.csv"
+    plt_path = f"out/VGG16_CIFAR10_block_bs{block_size}_gfo_1000Kfe_f1_cmaes_jax_restart5_plt.pdf"
     df = pd.DataFrame(
         {
             "n_step": [0],
@@ -113,7 +114,7 @@ if __name__ == "__main__":
     best_F = df["f_best"][0]
     best_state = None
     curr_iter = 0
-    maxFE = 100000
+    maxFE = 1000000
 
     problem = GFOProblem(
         n_var=bD,
@@ -135,17 +136,22 @@ if __name__ == "__main__":
     optimizer = IPOP_CMA_ES(
         popsize=4 + int(3 * np.log(bD)), num_dims=bD, sigma_init=1.0
     )  # , bounds=np.array([[-1, 1]]*bD))
+    # optimizer = IPOP_CMA_ES(popsize=100, num_dims=bD, sigma_init=1.0)#, bounds=np.array([[-1, 1]]*bD))
     NP = optimizer.strategy.popsize
     es_params = optimizer.default_params.replace(
         strategy_params=optimizer.default_params.strategy_params.replace(
             clip_min=-5, clip_max=5
         ),
         restart_params=optimizer.default_params.restart_params.replace(
-            min_fitness_spread=1, min_num_gens=500
+            min_fitness_spread=0.01,
+            min_num_gens=10000,
+            copy_mean=True,
+            popsize_multiplier=1,
         ),
     )
     if best_state is None:
         state = optimizer.initialize(rng, es_params)
+        state.strategy_state.replace(mean=best_x0)
     else:
         state = best_state
 
@@ -161,7 +167,7 @@ if __name__ == "__main__":
         problem=problem,
     )
     print(
-        f"n_steps \t| n_evals \t| best F \t| pop F_min \t| pop F_mean \t| pop F_std \t| sigma"
+        f"n_steps \t| n_evals \t| best F \t| pop F_min \t| pop F_mean \t| pop F_std \t| sigma\t|optimization time(s)\t|evaluation time(s)"
     )
     while FE < maxFE:
         rng, rng_gen, rng_eval = jax.random.split(rng, 3)
@@ -174,14 +180,16 @@ if __name__ == "__main__":
             set_model_state(model, best_X)
             torch.save(
                 model.state_dict(),
-                f"out/VGG16_CIFAR10_block_bs{block_size}_gfo_100Kfe_f1_cmaes_jax_restart5_model_{i}.pth",
+                f"out/VGG16_CIFAR10_block_bs{block_size}_gfo_1000Kfe_f1_cmaes_jax_restart5_model_{res_counter}.pth",
             )
             res_counter += 1
             batch_size *= 2
             curr_iter += iters
-
-            # state.restart_state.replace(min_num_gens=maxFE//optimizer.base_strategy.popsize)
-
+            # es_params = es_params.replace(
+            #     strategy_params = es_params.strategy_params.replace(
+            #         sigma_init=state.strategy_state.sigma
+            #     )
+            # )
             problem = GFOProblem(
                 n_var=bD,
                 model=model,
@@ -196,26 +204,27 @@ if __name__ == "__main__":
                 codebook=codebook,
                 orig_dims=D,
             )
-
-            callback = SOCallback(
-                k_steps=100,
-                csv_path=csv_path,
-                plt_path=plt_path,
-                start_eval=FE,
-                start_iter=curr_iter,
-                problem=problem,
+            callback.problem = problem
+            best_F = problem.scipy_fitness_func(state.strategy_state.best_member)
+            state.replace(
+                strategy_state=state.strategy_state.replace(best_fitness=best_F)
             )
-
-            NP *= 2
+            # NP *= 2
 
         pop_F = np.zeros(NP)
         pop_X = np.zeros((NP, bD))
+        opt_t1 = time()
         pop_X, state = optimizer.ask(rng_gen, state, es_params)
+        opt_t2 = time()
+        eval_t1 = time()
         for ip in range(NP):
             f = problem.scipy_fitness_func(pop_X[ip])
             pop_F[ip] = f
+        eval_t2 = time()
 
+        opt_t3 = time()
         state = optimizer.tell(pop_X, pop_F, state, es_params)
+        opt_t4 = time()
 
         argmin = pop_F.argmin()
         min_F = pop_F[argmin]
@@ -229,7 +238,16 @@ if __name__ == "__main__":
             niter=iters, neval=FE, opt_X=best_x0, opt_F=best_F, pop_F=pop_F
         )
         print(
-            f"{iters} \t| {FE} \t| {best_F:.6f} \t| {pop_F.min():.6f} \t| {pop_F.mean():.6f} \t| {pop_F.std():.6f} \t| {state.strategy_state.sigma:.6f}"
+            f"{iters} \t| {FE} \t| {best_F:.6f} \t| {pop_F.min():.6f} \t| {pop_F.mean():.6f} \t| {pop_F.std():.6f} \t| {state.strategy_state.sigma:.6f}\t| {(opt_t2-opt_t1) + opt_t4-opt_t3}\t| {eval_t2-eval_t1}"
         )
 
     print("Best solution found: \nX = %s\nF = %s" % (best_x0, best_F))
+    # Save the best solution model parameters state
+    best_X = best_x0.copy()
+    if len(best_X) != D:
+        best_X = problem.unblocker(best_X)
+    set_model_state(model, best_X)
+    torch.save(
+        model.state_dict(),
+        f"out/VGG16_CIFAR10_block_bs{block_size}_gfo_1000Kfe_f1_cmaes_jax_restart5_model_{res_counter}.pth",
+    )

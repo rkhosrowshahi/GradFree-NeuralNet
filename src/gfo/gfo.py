@@ -321,9 +321,13 @@ class SOCallback(Callback):
             # Save the DataFrame back to the CSV file
             df.to_csv(self.csv_path, index=False)
 
-            plt.plot(df["n_step"], df["f_best"], label="train")
+            plt.plot(df["n_step"].to_numpy(), df["f_best"].to_numpy(), label="train")
             if algorithm.problem.criterion != "crossentropy":
-                plt.plot(df["n_step"], 1 - df["test_f1_best"], label="test")
+                plt.plot(
+                    df["n_step"].to_numpy(),
+                    1 - df["test_f1_best"].to_numpy(),
+                    label="test",
+                )
             plt.xlabel("Steps")
             # if self.criterion != "crossentropy":
             plt.ylabel("Error")
@@ -352,9 +356,13 @@ class SOCallback(Callback):
             # Save the DataFrame back to the CSV file
             df.to_csv(self.csv_path, index=False)
 
-            plt.plot(df["n_step"], df["f_best"], label="train")
+            plt.plot(df["n_step"].to_numpy(), df["f_best"].to_numpy(), label="train")
             if self.problem.criterion != "crossentropy":
-                plt.plot(df["n_step"], 1 - df["test_f1_best"], label="test")
+                plt.plot(
+                    df["n_step"].to_numpy(),
+                    1 - df["test_f1_best"].to_numpy(),
+                    label="test",
+                )
             plt.xlabel("Steps")
             # if self.criterion != "crossentropy":
             plt.ylabel("Error")
@@ -389,9 +397,13 @@ class SOCallback(Callback):
             # Save the DataFrame back to the CSV file
             df.to_csv(self.csv_path, index=False)
 
-            plt.plot(df["n_step"], df["f_best"], label="train")
+            plt.plot(df["n_step"].to_numpy(), df["f_best"].to_numpy(), label="train")
             if self.problem.criterion != "crossentropy":
-                plt.plot(df["n_step"], 1 - df["test_f1_best"], label="test")
+                plt.plot(
+                    df["n_step"].to_numpy(),
+                    1 - df["test_f1_best"].to_numpy(),
+                    label="test",
+                )
             plt.xlabel("Steps")
             # if self.criterion != "crossentropy":
             plt.ylabel("Error")
