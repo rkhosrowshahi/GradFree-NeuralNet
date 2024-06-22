@@ -14,14 +14,14 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 
-from src.models import MNIST500K
+from src.models import MNIST500k
 
 import numpy as np
 import pandas as pd
 import jax
 import os
 import pickle
-from evosax import CMA_ES, IPOP_CMA_ES
+from evosax import CMA_ES
 
 if __name__ == "__main__":
     os.makedirs("./out", exist_ok=True)
@@ -39,11 +39,10 @@ if __name__ == "__main__":
     train_loader = DataLoader(trainset, batch_size=128, shuffle=True)
     test_loader = DataLoader(testset, batch_size=10000, shuffle=False)
 
-    block_size = 1000
+    block_size = 100
 
-    model = MNIST500K()
-    # model = vgg16()
-    # model.classifier = nn.Sequential(*model.classifier, nn.Linear(1000, 10))
+    model = MNIST500k()
+    problem_name = "MNIST500k"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
@@ -63,10 +62,8 @@ if __name__ == "__main__":
 
     bD = len(codebook)
     print(f"Blocked dims: {bD} D")
-    x0 = np.random.uniform(low=-5, high=5, size=(bD))
     init_params_blocked = blocker(init_params, codebook)
-    x0 = init_params_blocked.copy()
-    # init_pop = np.random.normal(loc=init_params, scale=0.1, size=(NP, bD))
+    x0 = np.zeros(bD)
     batch_size = 128
 
     problem = GFOProblem(
@@ -86,12 +83,9 @@ if __name__ == "__main__":
     out = {"F": []}
     problem._evaluate([x0, init_params, init_params_blocked], out=out)
     print(out)
-    csv_path = (
-        f"out/MNIST500K_block_bs{block_size}_gfo_100Kfe_f1_cmaes_jax_restart5_hist.csv"
-    )
-    plt_path = (
-        f"out/MNIST500K_block_bs{block_size}_gfo_100Kfe_f1_cmaes_jax_restart5_plt.pdf"
-    )
+    csv_path = f"out/{problem_name}_block_bs{block_size}_gfo_1000Kfe_f1_cmaes_jax_restart5_hist.csv"
+    plt_path = f"out/{problem_name}_block_bs{block_size}_gfo_1000Kfe_f1_cmaes_jax_restart5_plt.pdf"
+    model_path = f"out/{problem_name}_block_bs{block_size}_gfo_1000Kfe_f1_cmaes_jax_restart5_model"
     df = pd.DataFrame(
         {
             "n_step": [0],
@@ -110,7 +104,8 @@ if __name__ == "__main__":
     best_F = df["f_best"][0]
     best_state = None
     curr_iter = 0
-    maxFE = 100000
+    maxFE = 1000000
+    resFE = 200000
 
     problem = GFOProblem(
         n_var=bD,
@@ -128,25 +123,14 @@ if __name__ == "__main__":
     )
 
     rng = jax.random.PRNGKey(1)
-    optimizer = IPOP_CMA_ES(
-        popsize=4 + int(3 * np.log(bD)), num_dims=bD, sigma_init=1.0
-    )  # , bounds=np.array([[-1, 1]]*bD))
-    # optimizer = IPOP_CMA_ES(popsize=100, num_dims=bD, sigma_init=1.0)#, bounds=np.array([[-1, 1]]*bD))
-    NP = optimizer.strategy.popsize
-    es_params = optimizer.default_params.replace(
-        strategy_params=optimizer.default_params.strategy_params.replace(
-            clip_min=-5, clip_max=5
-        ),
-        restart_params=optimizer.default_params.restart_params.replace(
-            min_fitness_spread=0.01,
-            min_num_gens=10000,
-            copy_mean=True,
-            popsize_multiplier=1,
-        ),
-    )
+
+    optimizer = CMA_ES(popsize=4 + int(3 * np.log(bD)), num_dims=bD, sigma_init=1.0)
+    NP = optimizer.popsize
+    es_params = optimizer.default_params
     if best_state is None:
         state = optimizer.initialize(rng, es_params)
-        state.strategy_state.replace(mean=best_x0)
+        # state.replace(mean=best_x0)
+        # state.replace(clip_min=-5, clip_max=5)
     else:
         state = best_state
 
@@ -162,26 +146,21 @@ if __name__ == "__main__":
         problem=problem,
     )
     print(
-        f"n_steps\t|n_evals\t|best F\t|pop F_min\t|pop F_mean\t|pop F_std\t|sigma\t|optimization time(s)\t|evaluation time(s)"
+        f"n_steps\t|n_evals |best F\t|pop F_min\t|pop F_mean\t|pop F_std\t|sigma\t\t|optimization time(s)\t|evaluation time(s)"
     )
     while FE < maxFE:
         rng, rng_gen, rng_eval = jax.random.split(rng, 3)
-        if state.restart_state.restart_next:
+        if FE > (resFE * (res_counter + 1)):
             print("Restart optimizer #:", res_counter + 1)
             # Save the best solution model parameters state
             best_X = best_x0.copy()
             if len(best_X) != D:
                 best_X = problem.unblocker(best_X)
             set_model_state(model, best_X)
-            torch.save(
-                model.state_dict(),
-                f"out/MNIST30K_block_bs{block_size}_gfo_100Kfe_f1_cmaes_jax_restart5_model_{res_counter}.pth",
-            )
+            torch.save(model.state_dict(), f"{model_path}_{res_counter}.pth")
             res_counter += 1
             batch_size *= 2
             curr_iter += iters
-
-            # state.restart_state.replace(min_num_gens=maxFE//optimizer.base_strategy.popsize)
 
             problem = GFOProblem(
                 n_var=bD,
@@ -197,15 +176,9 @@ if __name__ == "__main__":
                 codebook=codebook,
                 orig_dims=D,
             )
-
-            callback = SOCallback(
-                k_steps=100,
-                csv_path=csv_path,
-                plt_path=plt_path,
-                start_eval=FE,
-                start_iter=curr_iter,
-                problem=problem,
-            )
+            callback.problem = problem
+            best_F = problem.scipy_fitness_func(state.best_member)
+            state.replace(best_fitness=best_F)
 
         pop_F = np.zeros(NP)
         pop_X = np.zeros((NP, bD))
@@ -234,7 +207,7 @@ if __name__ == "__main__":
             niter=iters, neval=FE, opt_X=best_x0, opt_F=best_F, pop_F=pop_F
         )
         print(
-            f"{iters}\t|{FE}\t|{best_F:.6f}\t|{pop_F.min():.6f}\t|{pop_F.mean():.6f}\t|{pop_F.std():.6f}\t|{state.strategy_state.sigma:.6f}\t|{((opt_t2-opt_t1) + (opt_t4-opt_t3)):.6f}\t|{(eval_t2-eval_t1):.6f}"
+            f"{iters}\t|{FE}\t|{best_F:.6f}\t|{pop_F.min():.6f}\t|{pop_F.mean():.6f}\t|{pop_F.std():.6f}\t|{state.sigma:.6f}\t|{((opt_t2-opt_t1) + (opt_t4-opt_t3)):.6f}\t|{(eval_t2-eval_t1):.6f}"
         )
 
     print("Best solution found: \nX = %s\nF = %s" % (best_x0, best_F))
@@ -243,7 +216,4 @@ if __name__ == "__main__":
     if len(best_X) != D:
         best_X = problem.unblocker(best_X)
     set_model_state(model, best_X)
-    torch.save(
-        model.state_dict(),
-        f"out/VGG16_CIFAR10_block_bs{block_size}_gfo_1000Kfe_f1_cmaes_jax_restart5_model_{res_counter}.pth",
-    )
+    torch.save(model.state_dict(), f"{model_path}_last.pth")
