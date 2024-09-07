@@ -28,6 +28,8 @@ if __name__ == "__main__":
     maxFE = 1000000
     block_size = 100
     b = 128
+    popsize = 100
+    sigma_init = 1.0
     # Load MNIST
     transform = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
@@ -90,6 +92,7 @@ if __name__ == "__main__":
         codebook=codebook,
         orig_dims=D,
     )
+
     out = {"F": []}
     problem._evaluate([init_params_blocked, init_params, x0], out=out)
     print(out)
@@ -132,8 +135,6 @@ if __name__ == "__main__":
     )
     df.to_csv(csv_path, index=False)
 
-    restarts = 5
-    # best_x0 = x0
     best_x0 = np.zeros(bD)
     best_F = df["f_best"][0]
     best_state = None
@@ -141,13 +142,14 @@ if __name__ == "__main__":
 
     rng = jax.random.PRNGKey(1)
 
-    optimizer = CMA_ES(popsize=4 + int(3 * np.log(bD)), num_dims=bD, sigma_init=0.1)
+    if popsize == None:
+        popsize = 4 + int(3 * np.log(bD))
+    optimizer = CMA_ES(popsize=popsize, num_dims=bD, sigma_init=sigma_init)
     NP = optimizer.popsize
     es_params = optimizer.default_params
     if best_state is None:
         state = optimizer.initialize(rng, es_params)
         # state.replace(mean=best_x0)
-        # state.replace(clip_min=-5, clip_max=5)
     else:
         state = best_state
 

@@ -406,13 +406,13 @@ class SOCallback(Callback):
                 plt.plot(
                     df["n_eval"].to_numpy(),
                     df["test_f1_best"].to_numpy(),
-                    fmt="-.",
+                    "-.",
                     label="Best test F1",
                 )
                 plt.plot(
                     df["n_eval"].to_numpy(),
                     df["test_top1_best"].to_numpy(),
-                    fmt="-.",
+                    "-.",
                     label="Best test Top-1",
                 )
             plt.xlabel("FE")
