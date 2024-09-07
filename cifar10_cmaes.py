@@ -68,23 +68,36 @@ if __name__ == "__main__":
 
     # Load MNIST
     num_classes = 10
-    transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+    transform_train = transforms.Compose(
+        [
+            # transforms.ToPILImage(),
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(15),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
     )
-    trainset = torchvision.datasets.MNIST(
-        root="./data", train=True, download=True, transform=transform
+    transform_test = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
     )
-    testset = torchvision.datasets.MNIST(
-        root="./data", train=False, download=True, transform=transform
+    trainset = torchvision.datasets.CIFAR10(
+        root="./data", train=False, download=True, transform=transform_train
+    )
+    testset = torchvision.datasets.CIFAR10(
+        root="./data", train=False, download=True, transform=transform_test
     )
     train_loader = DataLoader(trainset, batch_size=b, shuffle=True)
     test_loader = DataLoader(testset, batch_size=b, shuffle=False)
 
-    model = get_network(args.net, num_classes=10)
+    model = get_network(args.net, num_classes=num_classes)
     network_name = args.net
-    dataset_name = "mnist"
+    dataset_name = "cifar10"
     model.to(device)
-    print(torchsummary(model), (1, 28, 28))
+    print(torchsummary.summary(model, (3, 32, 32)))
 
     init_params = get_model_params(model)
     D = len(init_params)
@@ -171,7 +184,7 @@ if __name__ == "__main__":
     )
     df.to_csv(csv_path, index=False)
 
-    best_x0 = np.zeros(bD)
+    best_x0 = init_params_blocked
     best_F = df["f_best"][0]
     best_state = None
     curr_iter = 0
@@ -185,7 +198,7 @@ if __name__ == "__main__":
     es_params = optimizer.default_params
     if best_state is None:
         state = optimizer.initialize(rng, es_params)
-        # state.replace(mean=best_x0)
+        state.replace(mean=best_x0)
     else:
         state = best_state
 
@@ -246,7 +259,7 @@ if __name__ == "__main__":
         callback.general_caller(
             niter=iters, neval=FE, opt_X=best_x0, opt_F=best_F, pop_F=pop_F
         )
-        if iters % 10 == 0:
+        if iters % 1 == 0:
             print(
                 f"{iters}\t,{FE}\t,{best_F:.6f}\t,{pop_F.min():.6f}\t,{pop_F.mean():.6f}\t,{pop_F.std():.6f}\t,{pop_X[argmin].min():.6f}\t,{pop_X[argmin].max():.6f}\t,{state.sigma:.6f}\t,{((opt_t2-opt_t1) + (opt_t4-opt_t3)):.6f}\t,{(eval_t2-eval_t1):.6f}"
             )

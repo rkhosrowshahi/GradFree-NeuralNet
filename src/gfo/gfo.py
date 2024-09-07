@@ -95,7 +95,7 @@ class GFOProblem(Problem):
             len(indices), blocked_params[block_idx]
         )
 
-    def unblocker(self, blocked_params, verbose=False):
+    def unblocker(self, blocked_params, verbose=True):
 
         unblocked_params = np.zeros(self.orig_dims)
         # start_time = time.time()
