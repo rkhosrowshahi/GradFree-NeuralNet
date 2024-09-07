@@ -84,7 +84,7 @@ if __name__ == "__main__":
     network_name = args.net
     dataset_name = "mnist"
     model.to(device)
-    print(torchsummary(model), (1, 28, 28))
+    print(torchsummary.summary(model, (1, 28, 28)))
 
     init_params = get_model_params(model)
     D = len(init_params)
