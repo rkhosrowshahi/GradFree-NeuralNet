@@ -15,6 +15,9 @@ from sklearn.metrics import (
 
 from torcheval.metrics.functional import multiclass_f1_score, topk_multilabel_accuracy
 import matplotlib.pyplot as plt
+import scienceplots
+
+plt.style.use(["science", "no-latex"])
 
 
 from pymoo.core.problem import Problem
@@ -22,6 +25,8 @@ from pymoo.core.callback import Callback
 
 import multiprocessing as mp
 from concurrent.futures import ThreadPoolExecutor
+
+from tqdm import tqdm
 
 
 class GFOProblem(Problem):
@@ -82,81 +87,38 @@ class GFOProblem(Problem):
             batch_size=self.batch_size,
             shuffle=True,
             # num_workers=2,
-            pin_memory=True,
+            # pin_memory=True,
         )
-
-    # def unblocker(self, blocked_params):
-
-    #     unblocked_params = np.zeros(self.orig_dims)
-    #     # start_time = time.time()
-    #     for block_idx, indices in self.codebook.items():
-    #         # st_in = time.time()
-    #         unblocked_params[indices] = np.full(len(indices), blocked_params[block_idx])
-    #         # tot_in = time.time() - st_in
-    #         # print(tot_in)
-
-    #     # end_time = time.time() - start_time
-
-    #     # print(end_time)
-    #     return unblocked_params
 
     def update_unblocked_params(self, block_idx, indices, blocked_params):
         self.unblocked_params[indices] = np.full(
             len(indices), blocked_params[block_idx]
         )
 
-    def unblocker(self, blocked_params):
-        self.unblocked_params = np.zeros(self.orig_dims)
-        with ThreadPoolExecutor() as executor:
-            futures = []
-            for block_idx, indices in self.codebook.items():
-                futures.append(
-                    executor.submit(
-                        self.update_unblocked_params, block_idx, indices, blocked_params
-                    )
-                )
+    def unblocker(self, blocked_params, verbose=False):
 
-            for future in futures:
-                future.result()  # Wait for all futures to complete
+        unblocked_params = np.zeros(self.orig_dims)
+        # start_time = time.time()
+        block_idx = 0
+        for idx, indices in tqdm(
+            self.codebook.items(),
+            desc=f"Unblocking D= {len(blocked_params)} ==> {self.orig_dims}",
+            disable=not verbose,
+        ):
+            unblocked_params[indices] = np.full(len(indices), blocked_params[block_idx])
+            block_idx += 1
 
-        return self.unblocked_params
-
-    # def assign_values(self, args):
-    #     b = np.zeros(self.orig_dims)
-    #     a, indices = args[0], args[1]
-
-    #     b[indices] = a
-    #     # b[0] = indices[0]
-    #     return b
-
-    # def unblocker2(self, blocked_params):
-    #     flattened_indices = []
-    #     for i, indices in self.codebook.items():
-    #         flattened_indices.extend(indices)
-
-    #     unblocked_params = np.zeros(self.orig_dims)
-
-    #     st_in = time.time()
-    #     with mp.Pool(processes=4) as pool:
-    #         result = pool.imap(
-    #             self.assign_values,
-    #             zip(blocked_params, self.codebook.values()),
-    #         )
-    #     tot_in = time.time() - st_in
-    #     print(tot_in)
-
-    #     unblocked_params = np.sum(result, 0)
-
-    #     return unblocked_params
+        return unblocked_params
 
     def crossentropy_func(self, model, data_loader, device):
         model.eval()
         fitness = 0
 
-        data, target = next(iter(data_loader))
-        data, target = data.to(device), target.to(device)
-        output = model(data)
-        fitness += torch.nn.functional.cross_entropy(output, target).item()
+        with torch.no_grad():
+            data, target = next(iter(data_loader))
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            fitness += torch.nn.functional.cross_entropy(output, target).item()
 
         return fitness
 
@@ -164,17 +126,17 @@ class GFOProblem(Problem):
         model.eval()
         fitness = 0
 
-        # for idx, (data, target) in enumerate(data_loader):
-        data, target = next(iter(data_loader))
-        data, target = data.to(device), target.to(device)
-        output = model(data)
+        with torch.no_grad():
+            data, target = next(iter(data_loader))
+            data, target = data.to(device), target.to(device)
+            output = model(data)
 
-        # fitness += f1_score(
-        #     y_true=target.cpu().numpy(), y_pred=pred.cpu().numpy(), average="macro"
-        # )
-        fitness += multiclass_f1_score(
-            output, target, average="weighted", num_classes=self.num_classes
-        ).item()
+            # fitness += f1_score(
+            #     y_true=target.cpu().numpy(), y_pred=pred.cpu().numpy(), average="macro"
+            # )
+            fitness += multiclass_f1_score(
+                output, target, average="macro", num_classes=self.num_classes
+            ).item()
 
         return 1 - fitness
 
@@ -182,19 +144,18 @@ class GFOProblem(Problem):
         model.eval()
         fitness = 0
 
-        data, target = next(iter(data_loader))
-        data, target = data.to(device), target.to(device)
-        output = model(data)
-
-        fitness += top_k_accuracy_score(
-            y_true=target.cpu().numpy(),
-            y_score=output.cpu().detach().numpy(),
-            k=1,
-            labels=np.arange(self.num_classes),
-        )
+        with torch.no_grad():
+            data, target = next(iter(data_loader))
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            _, pred = torch.topk(input=output, k=1, dim=1, largest=True, sorted=True)
+            pred = pred.t()
+            batch_size = target.size(0)
+            correct = pred.eq(target.view(1, -1).expand_as(pred))
+            fitness += correct.view(-1).float().sum(0) / batch_size
         # fitness += topk_multilabel_accuracy(output, target, k=5).item()
 
-        return 1 - fitness
+        return 1 - fitness.item()
 
     def test_func(self, X):
         uxi = X.copy()
@@ -204,18 +165,42 @@ class GFOProblem(Problem):
         self.set_model_state(model=self.model, parameters=uxi)
         self.model.eval()
 
-        fitness = 0
+        all_outputs, all_preds, all_labels = (
+            torch.Tensor([]).to(self.device),
+            torch.Tensor([]).to(self.device),
+            torch.Tensor([]).to(self.device),
+        )
         with torch.no_grad():
             for idx, (data, target) in enumerate(self.test_loader):
                 data, target = data.to(self.device), target.to(self.device)
                 output = self.model(data)
-                pred = output.argmax(dim=1)
+                _, preds = torch.max(output, 1)
+                all_outputs = torch.cat((all_outputs, output))
+                all_preds = torch.cat((all_preds, preds))
+                all_labels = torch.cat((all_labels, target))
 
-                fitness += multiclass_f1_score(
-                    pred, target, average="macro", num_classes=self.num_classes
-                ).item()
-
-        return fitness / len(self.test_loader)
+        f1_f = f1_score(
+            all_labels.cpu().detach(),
+            all_preds.cpu().detach(),
+            average="macro",
+            labels=np.arange(self.num_classes),
+        )
+        if self.num_classes > 2:
+            top1_f = top_k_accuracy_score(
+                all_labels.cpu().detach(),
+                all_outputs.cpu().detach(),
+                k=1,
+                labels=np.arange(self.num_classes),
+            )
+        else:
+            batch_size = all_outputs.size(0)
+            correct = all_labels.eq(all_preds.expand_as(all_labels))
+            top1_f = correct.view(-1).float().sum(0) / batch_size
+            top1_f = top1_f.item()
+        return {
+            "f1": 1 - f1_f,
+            "top1": 1 - top1_f,
+        }
 
     def _calc_pareto_front(self):
         return 0
@@ -241,7 +226,7 @@ class GFOProblem(Problem):
 
         out["F"] = fout
 
-    def scipy_fitness_func(self, X):
+    def general_fitness_func(self, X):
 
         uxi = X
         if self.block and len(uxi) != self.orig_dims:
@@ -306,7 +291,7 @@ class SOCallback(Callback):
 
             NP = len(algorithm.pop)
             # algorithm.evaluator.n_eval += NP
-
+            test_fs = algorithm.problem.test_func(best_X)
             # Define the new row as a dictionary
             new_row = {
                 "n_step": self.start_iter + algorithm.n_iter,
@@ -314,7 +299,8 @@ class SOCallback(Callback):
                 "f_best": algorithm.opt.get("F")[0][0],
                 "f_avg": algorithm.pop.get("F").mean(),
                 "f_std": algorithm.pop.get("F").std(),
-                "test_f1_best": algorithm.problem.test_func(best_X),
+                "test_f1_best": test_fs["f1"],
+                "test_top1_best": test_fs["top1"],
             }
             # Append the new row to the DataFrame
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
@@ -342,6 +328,8 @@ class SOCallback(Callback):
         if intermediate_result.nit % self.k_steps == 0:
             best_X, best_F = intermediate_result.x, intermediate_result.fun
             df = pd.read_csv(self.csv_path)
+
+            test_fs = self.problem.test_func(best_X)
             # Define the new row as a dictionary
             new_row = {
                 "n_step": intermediate_result.nit,
@@ -349,7 +337,8 @@ class SOCallback(Callback):
                 "f_best": best_F,
                 "f_avg": intermediate_result.population_energies.mean(),
                 "f_std": intermediate_result.population_energies.std(),
-                "test_f1_best": self.problem.test_func(best_X),
+                "test_f1_best": test_fs["f1"],
+                "test_top1_best": test_fs["top1"],
             }
             # Append the new row to the DataFrame
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
@@ -379,10 +368,13 @@ class SOCallback(Callback):
         opt_X,
         opt_F,
         pop_F,
+        last_iter=False,
     ):
-        if niter % self.k_steps == 0:
+        if niter % self.k_steps == 0 or niter == 1 or last_iter == True:
             best_X, best_F = opt_X, opt_F
             df = pd.read_csv(self.csv_path)
+
+            test_fs = self.problem.test_func(best_X)
             # Define the new row as a dictionary
             new_row = {
                 "n_step": self.start_iter + niter,
@@ -390,24 +382,43 @@ class SOCallback(Callback):
                 "f_best": best_F,
                 "f_avg": pop_F.mean(),
                 "f_std": pop_F.std(),
-                "test_f1_best": self.problem.test_func(best_X),
+                "test_f1_best": test_fs["f1"],
+                "test_top1_best": test_fs["top1"],
             }
             # Append the new row to the DataFrame
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
             # Save the DataFrame back to the CSV file
             df.to_csv(self.csv_path, index=False)
 
-            plt.plot(df["n_step"].to_numpy(), df["f_best"].to_numpy(), label="train")
+            df = df.iloc[1:]
+
+            plt.plot(
+                df["n_eval"].to_numpy(),
+                df["f_best"].to_numpy(),
+                label="Best fitness",
+            )
+            plt.plot(
+                df["n_eval"].to_numpy(),
+                df["f_avg"].to_numpy(),
+                label="Avg. fitness",
+            )
             if self.problem.criterion != "crossentropy":
                 plt.plot(
-                    df["n_step"].to_numpy(),
-                    1 - df["test_f1_best"].to_numpy(),
-                    label="test",
+                    df["n_eval"].to_numpy(),
+                    df["test_f1_best"].to_numpy(),
+                    fmt="-.",
+                    label="Best test F1",
                 )
-            plt.xlabel("Steps")
+                plt.plot(
+                    df["n_eval"].to_numpy(),
+                    df["test_top1_best"].to_numpy(),
+                    fmt="-.",
+                    label="Best test Top-1",
+                )
+            plt.xlabel("FE")
             # if self.criterion != "crossentropy":
             plt.ylabel("Error")
-            plt.title(f"DE, {self.problem.criterion}")
+            # plt.title(f"{self.problem.criterion}")
             plt.legend()
             plt.grid()
             plt.savefig(self.plt_path)
