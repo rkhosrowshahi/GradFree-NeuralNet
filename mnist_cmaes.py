@@ -1,3 +1,4 @@
+import argparse
 from datetime import datetime
 import os
 from time import time
@@ -25,14 +26,49 @@ import pickle
 from evosax import CMA_ES
 
 if __name__ == "__main__":
-    maxFE = 1000000
-    block_size = 100
-    b = 128
-    popsize = 100
-    sigma_init = 1.0
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--net", type=str, required=True, help="network type")
+    parser.add_argument(
+        "--gpu", type=str, default="cuda:0", help="use cuda:[number1], cuda:[number2]"
+    )
+    parser.add_argument("--b", type=int, default=128, help="batch size for dataloader")
+    parser.add_argument(
+        "--bs", type=int, default=128, help="block size for fixed codebook blocking"
+    )
+    parser.add_argument(
+        "--maxfe", type=int, default=1000000, help="max function evaluation"
+    )
+    parser.add_argument("--np", type=int, default=100, help="pop size")
+    parser.add_argument("--sigma", type=int, default=0.1, help="initial sigma")
+    parser.add_argument("--criterion", type=str, default="top1", help="use top1 or f1")
+    # parser.add_argument(
+    #     "--dataset",
+    #     type=str,
+    #     default="imagenet",
+    #     help="use cifar10, cifar100 or imagenet",
+    # )
+    # parser.add_argument(
+    #     "--seed", type=int, default=1, help="seed value for random values"
+    # )
+    # parser.add_argument(
+    #     "--lb", type=int, default=2, help="lower bound in population initilization"
+    # )
+    # parser.add_argument(
+    #     "--ub", type=int, default=1000, help="upper bound in population initilization"
+    # )
+    # parser.add_argument('--resume', action='store_true', default=False, help='resume training')
+    args = parser.parse_args()
+
+    device = torch.device(args.gpu)
+    maxFE = args.maxfe
+    block_size = args.bs
+    b = args.b
+    popsize = args.np
+    sigma_init = args.sigma
+
     # Load MNIST
     transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
+        [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
     )
     trainset = torchvision.datasets.MNIST(
         root="./data", train=True, download=True, transform=transform
@@ -44,10 +80,10 @@ if __name__ == "__main__":
     test_loader = DataLoader(testset, batch_size=b, shuffle=False)
 
     model = LeNet()
-    network_name = "lenet5"
+    network_name = args.net
     dataset_name = "mnist"
     print(model)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     model.to(device)
 
     init_params = get_model_params(model)
