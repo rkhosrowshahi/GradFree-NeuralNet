@@ -34,7 +34,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--b", type=int, default=128, help="batch size for dataloader")
     parser.add_argument(
-        "--bs", type=int, default=10, help="block size for fixed codebook blocking"
+        "--bs", nargs="+", type=int, help="block size for fixed codebook blocking"
     )
     parser.add_argument(
         "--maxfe", type=int, default=1000000, help="max function evaluation"
@@ -111,9 +111,11 @@ if __name__ == "__main__":
             codebook = pickle.load(f)
     else:
         if args.block_scheme == "full":
-            codebook = build_rand_blocks(D, block_size=block_size)
+            codebook = build_rand_blocks(D, bs=block_size[0])
         if args.block_scheme == "sep":
-            codebook = build_separate_blocks(D, block_size=block_size, model=model)
+            codebook = build_separate_blocks(
+                D, bs1=block_size[0], bs2=block_size[1], model=model
+            )
         with open(codebook_path_file, "wb") as f:
             pickle.dump(codebook, f)
 
