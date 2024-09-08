@@ -2,11 +2,9 @@ import numpy as np
 
 
 def build_rand_blocks(D, bs=100):
-    bD = D // block_size + 1
+    bD = D // bs + 1
     codebook = {}
-    random_blocks = np.random.choice(
-        np.arange(bD * block_size), size=(bD, block_size), replace=False
-    )
+    random_blocks = np.random.choice(np.arange(bD * bs), size=(bD, bs), replace=False)
     random_blocks[random_blocks >= D] = -1
     codebook = {i: row[row != -1].tolist() for i, row in enumerate(random_blocks)}
 
