@@ -1,2 +1,0 @@
-n_step,n_eval,f_best,f_avg,f_std,test_f1_best,test_top1_best
-0,1,0.90625,0,0,0.9812907904278463,0.8968

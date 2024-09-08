@@ -41,7 +41,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--np", type=int, default=None, help="pop size")
     parser.add_argument("--sigma", type=float, default=0.1, help="initial sigma")
-    parser.add_argument("--obj", type=str, default="top1", help="use top1 or f1")
+    parser.add_argument("--obj", type=str, default="f1", help="use top1 or f1")
     parser.add_argument("--block_scheme", type=str, default=None, help="full or sep")
     # parser.add_argument(
     #     "--dataset",
