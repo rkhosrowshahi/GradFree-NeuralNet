@@ -8,6 +8,7 @@ from src.gfo import (
     SOCallback,
     blocker,
     build_rand_blocks,
+    build_separate_blocks,
     get_model_params,
     set_model_state,
 )
@@ -40,7 +41,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--np", type=int, default=None, help="pop size")
     parser.add_argument("--sigma", type=float, default=0.1, help="initial sigma")
-    parser.add_argument("--criterion", type=str, default="top1", help="use top1 or f1")
+    parser.add_argument("--obj", type=str, default="top1", help="use top1 or f1")
+    parser.add_argument("--block_scheme", type=str, default=None, help="full or sep")
     # parser.add_argument(
     #     "--dataset",
     #     type=str,
@@ -80,10 +82,11 @@ if __name__ == "__main__":
     train_loader = DataLoader(trainset, batch_size=b, shuffle=True)
     test_loader = DataLoader(testset, batch_size=b, shuffle=False)
 
-    model = get_network(args.net, num_classes=10)
+    model = get_network(args.net, in_size=28 * 28, hidden_size=128, num_classes=10)
     network_name = args.net
     dataset_name = "mnist"
     model.to(device)
+    print(model)
     print(torchsummary.summary(model, (1, 28, 28)))
 
     init_params = get_model_params(model)
@@ -97,15 +100,20 @@ if __name__ == "__main__":
     )
     if not os.path.exists(codebook_path):
         os.makedirs(codebook_path)
-    codebook_path = os.path.join(codebook_path, "{net}-bs{bs}.pkl")
+    codebook_path = os.path.join(codebook_path, "{net}-bs{bs}-{type}.pkl")
 
     codebook = {}
-    codebook_path_file = codebook_path.format(net=network_name, bs=block_size)
+    codebook_path_file = codebook_path.format(
+        net=network_name, bs=block_size, type=args.block_scheme
+    )
     if os.path.exists(codebook_path_file):
         with open(codebook_path_file, "rb") as f:
             codebook = pickle.load(f)
     else:
-        codebook = build_rand_blocks(D, block_size=block_size)
+        if args.block_scheme == "full":
+            codebook = build_rand_blocks(D, block_size=block_size)
+        if args.block_scheme == "sep":
+            codebook = build_separate_blocks(D, block_size=block_size, model=model)
         with open(codebook_path_file, "wb") as f:
             pickle.dump(codebook, f)
 
@@ -123,7 +131,7 @@ if __name__ == "__main__":
         set_model_state=set_model_state,
         batch_size=b,
         device=device,
-        criterion="top1",
+        criterion=args.obj,
         block=True,
         codebook=codebook,
         orig_dims=D,
