@@ -131,11 +131,8 @@ class GFOProblem(Problem):
             data, target = data.to(device), target.to(device)
             output = model(data)
 
-            # fitness += f1_score(
-            #     y_true=target.cpu().numpy(), y_pred=pred.cpu().numpy(), average="macro"
-            # )
             fitness += multiclass_f1_score(
-                output, target, average="macro", num_classes=self.num_classes
+                output, target, average="weighted", num_classes=self.num_classes
             ).item()
 
         return 1 - fitness
